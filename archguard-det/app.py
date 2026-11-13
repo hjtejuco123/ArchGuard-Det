@@ -177,8 +177,17 @@ def get_history(db: AuditDatabase | None = None) -> dict[str, Any]:
     return {
         "db_path": db_instance.db_path,
         "history": db_instance.list_history(),
+        "adi_trend": db_instance.get_adi_trend(),
         "latest_audit": db_instance.get_latest_audit(),
         "latest_benchmark": db_instance.get_latest_benchmark(),
+    }
+
+
+def get_adi_trend_data(limit: int = 50, db: AuditDatabase | None = None) -> dict[str, Any]:
+    db_instance = db or AuditDatabase()
+    return {
+        "db_path": db_instance.db_path,
+        "points": db_instance.get_adi_trend(limit=limit),
     }
 
 
@@ -263,6 +272,12 @@ def create_flask_app():
     def api_history():
         return jsonify(get_history(db=db)), 200
 
+    @app.route("/api/adi-trend", methods=["GET"])
+    def api_adi_trend():
+        raw_limit = request.args.get("limit", default=50, type=int) or 50
+        bounded_limit = max(1, min(200, raw_limit))
+        return jsonify(get_adi_trend_data(limit=bounded_limit, db=db)), 200
+
     return app
 
 
@@ -295,6 +310,9 @@ def _run_cli_bridge(command: str) -> int:
             out = {"filename": "results_table.tex", "content": content}
         elif command == "history":
             out = get_history(db=db)
+        elif command == "adi_trend":
+            limit = int(payload.get("limit", 50))
+            out = get_adi_trend_data(limit=max(1, min(200, limit)), db=db)
         else:
             out = {"error": f"Unknown bridge command: {command}"}
             print(json.dumps(out))

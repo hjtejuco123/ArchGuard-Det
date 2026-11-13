@@ -168,3 +168,59 @@ class AuditDatabase:
                 "audits": [dict(r) for r in audits],
                 "benchmarks": [dict(r) for r in benchmarks],
             }
+
+    def get_adi_trend(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return chronological Architectural Drift Index (ADI) trend points from SQLite."""
+        with self._connect() as conn:
+            audit_rows = conn.execute(
+                """
+                SELECT id, created_at, repo_path, adi_score, total_violations, execution_ms
+                FROM audit_runs
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+            benchmark_rows = conn.execute(
+                """
+                SELECT id, created_at, ground_truth_count, proposed_adi, proposed_f1
+                FROM benchmark_runs
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        points: list[dict[str, Any]] = []
+        for r in audit_rows:
+            points.append(
+                {
+                    "point_id": f"audit-{r['id']}",
+                    "run_id": int(r["id"]),
+                    "run_type": "audit",
+                    "created_at": r["created_at"],
+                    "label": r["repo_path"],
+                    "adi_score": round(float(r["adi_score"]), 3),
+                    "total_violations": int(r["total_violations"]),
+                    "execution_ms": round(float(r["execution_ms"]), 2),
+                }
+            )
+
+        for r in benchmark_rows:
+            points.append(
+                {
+                    "point_id": f"bench-{r['id']}",
+                    "run_id": int(r["id"]),
+                    "run_type": "benchmark",
+                    "created_at": r["created_at"],
+                    "label": f"Synthetic Drift (N={r['ground_truth_count']})",
+                    "adi_score": round(float(r["proposed_adi"]), 3),
+                    "total_violations": int(r["ground_truth_count"]),
+                    "proposed_f1": round(float(r["proposed_f1"]), 3),
+                }
+            )
+
+        points.sort(key=lambda item: (item["created_at"], item["run_type"], item["run_id"]))
+        return points[-limit:]
+

@@ -12,8 +12,9 @@ import {
   Search,
   Upload,
 } from 'lucide-react';
+import { AdiTrendChart } from './components/AdiTrendChart';
 import { DependencyGraph } from './components/DependencyGraph';
-import type { AuditResult, BenchmarkResult } from './types';
+import type { AdiTrendPoint, AuditResult, BenchmarkResult } from './types';
 
 type TabKey = 'spec' | 'findings' | 'benchmark' | 'export';
 
@@ -47,12 +48,29 @@ export default function App() {
 
   const [auditResult, setAuditResult] = useState<AuditResult | null>(null);
   const [benchmarkResult, setBenchmarkResult] = useState<BenchmarkResult | null>(null);
+  const [adiTrend, setAdiTrend] = useState<AdiTrendPoint[]>([]);
+  const [loadingTrend, setLoadingTrend] = useState(false);
   const [findingsSource, setFindingsSource] = useState<'audited' | 'drifted'>('audited');
 
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [loadingBenchmark, setLoadingBenchmark] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const refreshAdiTrend = useCallback(async () => {
+    setLoadingTrend(true);
+    try {
+      const res = await fetch('/api/adi-trend');
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.points)) {
+        setAdiTrend(data.points);
+      }
+    } catch {
+      // Ignore silent refresh failures
+    } finally {
+      setLoadingTrend(false);
+    }
+  }, []);
 
   const [severityFilter, setSeverityFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
@@ -114,6 +132,7 @@ export default function App() {
         if (!res.ok) throw new Error(data.error || 'Audit execution failed');
         setAuditResult(data);
         setFindingsSource('audited');
+        await refreshAdiTrend();
         if (switchTab) setActiveTab('findings');
       } catch (err: any) {
         setErrorMsg(err?.message || 'Audit execution failed');
@@ -121,7 +140,7 @@ export default function App() {
         setLoadingAudit(false);
       }
     },
-    [repoPath, zipFile, yamlText]
+    [repoPath, zipFile, yamlText, refreshAdiTrend]
   );
 
   const runBenchmark = useCallback(async () => {
@@ -136,12 +155,13 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Benchmark execution failed');
       setBenchmarkResult(data);
+      await refreshAdiTrend();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Benchmark execution failed');
     } finally {
       setLoadingBenchmark(false);
     }
-  }, [yamlText]);
+  }, [yamlText, refreshAdiTrend]);
 
   useEffect(() => {
     (async () => {
@@ -156,6 +176,9 @@ export default function App() {
         }
         const histData = await histRes.json();
         if (histRes.ok) {
+          if (Array.isArray(histData.adi_trend)) {
+            setAdiTrend(histData.adi_trend);
+          }
           if (histData.latest_benchmark) {
             setBenchmarkResult(histData.latest_benchmark);
           }
@@ -171,7 +194,10 @@ export default function App() {
           body: JSON.stringify({ repo_path: './sample_repo' }),
         });
         const initData = await initAudit.json();
-        if (initAudit.ok) setAuditResult(initData);
+        if (initAudit.ok) {
+          setAuditResult(initData);
+          await refreshAdiTrend();
+        }
       } catch {
         // Ignore silent bootstrap errors; user can trigger manually
       }
@@ -521,6 +547,13 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* ADI Trend Over Time Line Chart (SQLite-backed) */}
+            <AdiTrendChart
+              points={adiTrend}
+              loading={loadingTrend}
+              onRefresh={refreshAdiTrend}
+            />
 
             {/* Layered Dependency Graph */}
             <section className="space-y-2">

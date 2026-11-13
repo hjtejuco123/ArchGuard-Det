@@ -124,3 +124,16 @@ export interface BenchmarkResult {
   csv_content: string;
   latex_content: string;
 }
+
+export interface AdiTrendPoint {
+  point_id: string;
+  run_id: number;
+  run_type: 'audit' | 'benchmark';
+  created_at: string;
+  label: string;
+  adi_score: number;
+  total_violations: number;
+  execution_ms?: number;
+  proposed_f1?: number;
+}
+

@@ -122,6 +122,17 @@ async function startServer() {
     }
   });
 
+  app.get('/api/adi-trend', async (req, res) => {
+    try {
+      const rawLimit = Number(req.query.limit ?? 50);
+      const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(200, Math.floor(rawLimit))) : 50;
+      const data = await callPythonBridge('adi_trend', { limit });
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'ADI trend lookup failed' });
+    }
+  });
+
   const distPath = path.join(__dirname, 'dist');
   const isProd = process.env.NODE_ENV === 'production' && fs.existsSync(distPath);
 

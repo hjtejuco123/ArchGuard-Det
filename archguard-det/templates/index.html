@@ -190,6 +190,21 @@
 
               <div class="card mb-3">
                 <div class="card-header d-flex justify-content-between align-items-center">
+                  <div>
+                    <h3 class="card-title mb-0">Architectural Drift Index (ADI) Trend Over Time</h3>
+                  </div>
+                  <button class="btn btn-outline-secondary btn-sm" onclick="loadAdiTrend()">Refresh Trend</button>
+                </div>
+                <div class="card-body">
+                  <div class="graph-canvas-wrap p-2">
+                    <svg id="adi-trend-svg" width="960" height="220" viewBox="0 0 960 220"></svg>
+                  </div>
+                  <div id="adi-trend-meta" class="small text-secondary mt-2 tabular-nums"></div>
+                </div>
+              </div>
+
+              <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
                   <h3 class="card-title">Layered Dependency Graph</h3>
                   <div class="small text-secondary">
                     <span class="text-success fw-semibold me-3">— Valid Dependency</span>
@@ -390,6 +405,7 @@
       if (!res.ok) return showError(data.error || 'Audit failed');
       currentAudit = data;
       renderAudit(data);
+      await loadAdiTrend();
       const tabTrigger = document.querySelector('a[href="#tab-findings"]');
       if (tabTrigger && window.bootstrap) {
         new window.bootstrap.Tab(tabTrigger).show();
@@ -558,6 +574,83 @@
       }).join('');
 
       document.getElementById('latex-preview').textContent = data.latex_content || '';
+      await loadAdiTrend();
+    }
+
+    async function loadAdiTrend() {
+      const res = await fetch('/api/adi-trend');
+      if (!res.ok) return;
+      const data = await res.json();
+      renderAdiTrend(data.points || []);
+    }
+
+    let adiTrendPoints = [];
+
+    function formatTrendDate(iso) {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      return d.toLocaleString([], {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    }
+
+    function renderAdiTrend(points, hoveredIdx = null) {
+      adiTrendPoints = points || [];
+      const svg = document.getElementById('adi-trend-svg');
+      const meta = document.getElementById('adi-trend-meta');
+      if (!adiTrendPoints.length) {
+        svg.innerHTML = '<text x="480" y="110" text-anchor="middle" font-size="13" fill="#64748b">No SQLite runs persisted yet.</text>';
+        meta.textContent = '';
+        return;
+      }
+      const w = 960, h = 220, padL = 48, padR = 20, padT = 18, padB = 32;
+      const plotW = w - padL - padR, plotH = h - padT - padB;
+      let html = '';
+      [0, 0.25, 0.5, 0.75, 1].forEach(t => {
+        const y = padT + (1 - t) * plotH;
+        html += `<line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#e2e8f0" stroke-width="1" />`;
+        html += `<text x="${padL - 8}" y="${y + 4}" text-anchor="end" font-size="10" fill="#64748b">${t.toFixed(2)}</text>`;
+      });
+      const coords = adiTrendPoints.map((p, idx) => {
+        const x = adiTrendPoints.length === 1 ? padL + plotW / 2 : padL + (idx / (adiTrendPoints.length - 1)) * plotW;
+        const y = padT + (1 - Math.max(0, Math.min(1, p.adi_score))) * plotH;
+        return {x, y, p, idx};
+      });
+      if (coords.length >= 2) {
+        const d = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+        html += `<path d="${d}" fill="none" stroke="#2563eb" stroke-width="2.2" />`;
+      }
+      coords.forEach(c => {
+        const isActive = hoveredIdx === c.idx;
+        const fill = c.p.run_type === 'benchmark' ? '#dc2626' : '#2563eb';
+        html += `<g style="cursor:pointer" onmouseenter="renderAdiTrend(adiTrendPoints, ${c.idx})" onmouseleave="renderAdiTrend(adiTrendPoints, null)">`;
+        html += `<circle cx="${c.x}" cy="${c.y}" r="14" fill="transparent" />`;
+        if (isActive) {
+          html += `<circle cx="${c.x}" cy="${c.y}" r="8" fill="${fill}" fill-opacity="0.18" />`;
+        }
+        html += `<circle cx="${c.x}" cy="${c.y}" r="${isActive ? 5.5 : 4.2}" fill="${fill}" stroke="#ffffff" stroke-width="1.5" />`;
+        html += `</g>`;
+      });
+      if (hoveredIdx !== null && coords[hoveredIdx]) {
+        const hp = coords[hoveredIdx];
+        const boxW = 236, boxH = 54;
+        const tx = Math.max(padL, Math.min(w - padR - boxW, hp.x - boxW / 2));
+        const below = hp.y - boxH - 12 < 4;
+        const ty = below ? hp.y + 12 : hp.y - boxH - 12;
+        html += `<g pointer-events="none">`;
+        html += `<rect x="${tx}" y="${ty}" width="${boxW}" height="${boxH}" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1" />`;
+        html += `<text x="${tx + 10}" y="${ty + 19}" font-size="10" fill="#cbd5e1">${esc(formatTrendDate(hp.p.created_at))}</text>`;
+        html += `<text x="${tx + 10}" y="${ty + 39}" font-size="12" font-weight="700" fill="#ffffff">ADI ${Number(hp.p.adi_score).toFixed(3)} · ${hp.p.total_violations} violations</text>`;
+        html += `</g>`;
+      }
+      svg.innerHTML = html;
+      const latest = adiTrendPoints[adiTrendPoints.length - 1];
+      meta.textContent = `Persisted runs: ${adiTrendPoints.length} · Latest: ${latest.label} (ADI ${Number(latest.adi_score).toFixed(3)})`;
     }
 
     async function copyLatex() {
@@ -570,6 +663,7 @@
     window.addEventListener('DOMContentLoaded', async () => {
       await loadRules();
       await runAudit();
+      await loadAdiTrend();
     });
   </script>
 </body>
