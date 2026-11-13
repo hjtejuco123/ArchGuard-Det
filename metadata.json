@@ -1,0 +1,6 @@
+{
+  "name": "ArchGuard-Det",
+  "description": "Deterministic AST-Graph Architectural Drift & Technical Debt Auditor",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

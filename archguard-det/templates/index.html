@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ArchGuard-Det — Deterministic AST-Graph Architectural Drift & Technical Debt Auditor</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/css/tabler.min.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --tblr-font-sans-serif: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --tblr-font-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    }
+    body {
+      font-family: var(--tblr-font-sans-serif);
+      background-color: #f8fafc;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+      font-family: var(--tblr-font-monospace);
+    }
+    .yaml-editor {
+      font-family: var(--tblr-font-monospace);
+      font-size: 0.825rem;
+      line-height: 1.5;
+      background-color: #0f172a;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      min-height: 390px;
+    }
+    .graph-canvas-wrap {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      overflow: auto;
+    }
+    @keyframes pulseEdge {
+      0%, 100% { stroke-opacity: 1; stroke-width: 2.5; }
+      50% { stroke-opacity: 0.45; stroke-width: 3.5; }
+    }
+    .edge-violation {
+      animation: pulseEdge 1.6s ease-in-out infinite;
+    }
+    .latex-preview {
+      font-family: var(--tblr-font-monospace);
+      font-size: 0.82rem;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 1.25rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      white-space: pre;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="navbar navbar-expand-md navbar-light d-print-none bg-white border-bottom">
+      <div class="container-xl">
+        <a href="/" class="navbar-brand navbar-brand-autodark pe-0 pe-md-3 fw-bold text-dark">
+          ArchGuard-Det
+        </a>
+        <div class="navbar-nav flex-row order-md-last align-items-center gap-2">
+          <button id="btn-header-audit" class="btn btn-primary btn-sm" onclick="runAudit()">
+            Run Deterministic Audit
+          </button>
+        </div>
+        <div class="collapse navbar-collapse" id="navbar-menu">
+          <ul class="nav nav-tabs border-0" role="tablist">
+            <li class="nav-item">
+              <a class="nav-link active fw-medium" data-bs-toggle="tab" href="#tab-spec" role="tab">Repository &amp; Spec</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link fw-medium" data-bs-toggle="tab" href="#tab-findings" role="tab">Findings &amp; Graph</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link fw-medium" data-bs-toggle="tab" href="#tab-benchmark" role="tab">Benchmark &amp; Ablation</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link fw-medium" data-bs-toggle="tab" href="#tab-export" role="tab">IEEE Paper Export</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </header>
+
+    <div class="page-wrapper">
+      <div class="page-body">
+        <div class="container-xl">
+          <div id="alert-banner" class="alert alert-danger d-none" role="alert"></div>
+
+          <div class="tab-content">
+            <!-- TAB 1: Repository & Architecture Spec -->
+            <div class="tab-pane active show" id="tab-spec" role="tabpanel">
+              <div class="row row-cards">
+                <div class="col-lg-5">
+                  <div class="card">
+                    <div class="card-header">
+                      <h3 class="card-title">Target Python Repository</h3>
+                    </div>
+                    <div class="card-body">
+                      <div class="mb-3">
+                        <label class="form-label" for="repo-path-input">Local Repository Path</label>
+                        <input id="repo-path-input" type="text" class="form-control tabular-nums" value="./sample_repo" />
+                        <div class="form-hint">Defaults to the clean 3-tier e-commerce baseline in <code>./sample_repo</code>.</div>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label" for="repo-zip-input">Or Upload Repository Archive (.zip)</label>
+                        <input id="repo-zip-input" type="file" accept=".zip" class="form-control" />
+                        <div class="form-hint">Zip archive is extracted to an isolated temporary workspace for AST parsing.</div>
+                      </div>
+                      <div class="d-flex gap-2">
+                        <button class="btn btn-primary w-100" onclick="runAudit()">Run Deterministic Audit</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="card mt-3">
+                    <div class="card-header">
+                      <h3 class="card-title">Audit Methodology</h3>
+                    </div>
+                    <div class="card-body text-secondary small">
+                      <p class="mb-2">100% offline AST + NetworkX graph verification. Parses imports (top-level and local), call chains, decorator guardrails, McCabe cyclomatic complexity, and coupling instability.</p>
+                      <div class="border-top pt-2 tabular-nums">
+                        ADI = min(1.0, 0.45·(W_v/|V|) + 0.30·I_core + 0.25·(Cyclic/|V|))
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-lg-7">
+                  <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                      <h3 class="card-title">architecture_rules.yaml Specification</h3>
+                      <div class="d-flex gap-2">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="loadRules()">Reload YAML</button>
+                        <button class="btn btn-outline-primary btn-sm" onclick="saveRules()">Save YAML</button>
+                      </div>
+                    </div>
+                    <div class="card-body">
+                      <textarea id="yaml-editor" class="form-control yaml-editor" spellcheck="false"></textarea>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB 2: Audit Findings & Interactive Dependency Graph -->
+            <div class="tab-pane" id="tab-findings" role="tabpanel">
+              <div class="row row-deck row-cards mb-3">
+                <div class="col-sm-6 col-lg-3">
+                  <div class="card">
+                    <div class="card-body">
+                      <div class="subheader">Architectural Drift Index (ADI)</div>
+                      <div id="kpi-adi" class="h1 mb-0 mt-2 tabular-nums">0.000</div>
+                      <div id="kpi-adi-sub" class="text-secondary small mt-1 tabular-nums">Bounded [0.000, 1.000]</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                  <div class="card">
+                    <div class="card-body">
+                      <div class="subheader">Total Violations</div>
+                      <div id="kpi-violations" class="h1 mb-0 mt-2 tabular-nums">0</div>
+                      <div id="kpi-severity-sub" class="text-secondary small mt-1 tabular-nums">0 Critical · 0 High · 0 Medium</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                  <div class="card">
+                    <div class="card-body">
+                      <div class="subheader">Graph Nodes / Edges</div>
+                      <div id="kpi-graph" class="h1 mb-0 mt-2 tabular-nums">0 / 0</div>
+                      <div class="text-secondary small mt-1">AST Modules &amp; ExternalDB</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                  <div class="card">
+                    <div class="card-body">
+                      <div class="subheader">Execution Time</div>
+                      <div id="kpi-latency" class="h1 mb-0 mt-2 tabular-nums">0.00 ms</div>
+                      <div class="text-secondary small mt-1">Deterministic Wall-Clock</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h3 class="card-title">Layered Dependency Graph</h3>
+                  <div class="small text-secondary">
+                    <span class="text-success fw-semibold me-3">— Valid Dependency</span>
+                    <span class="text-danger fw-semibold">— Architectural Violation</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="graph-canvas-wrap">
+                    <svg id="dependency-svg" width="1120" height="460" viewBox="0 0 1120 460"></svg>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                  <h3 class="card-title">Detected Architectural Violations</h3>
+                  <div class="d-flex gap-2">
+                    <select id="filter-severity" class="form-select form-select-sm" onchange="renderViolationsTable()">
+                      <option value="ALL">All Severities</option>
+                      <option value="CRITICAL">CRITICAL</option>
+                      <option value="HIGH">HIGH</option>
+                      <option value="MEDIUM">MEDIUM</option>
+                    </select>
+                    <select id="filter-category" class="form-select form-select-sm" onchange="renderViolationsTable()">
+                      <option value="ALL">All Categories</option>
+                      <option value="Direct Layering Violation">Direct Layering Violation</option>
+                      <option value="Transitive Layer Bypass">Transitive Layer Bypass</option>
+                      <option value="Circular Dependency">Circular Dependency</option>
+                      <option value="Security Guardrail Bypass">Security Guardrail Bypass</option>
+                      <option value="Structural Technical Debt">Structural Technical Debt</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-vcenter card-table">
+                    <thead>
+                      <tr>
+                        <th>Rule ID</th>
+                        <th>Category</th>
+                        <th>Severity</th>
+                        <th>File &amp; Lines</th>
+                        <th>Architectural Trace</th>
+                        <th>Deterministic Refactoring Fix</th>
+                      </tr>
+                    </thead>
+                    <tbody id="violations-tbody">
+                      <tr><td colspan="6" class="text-center text-secondary py-4">Run an audit to inspect violations.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB 3: Research Benchmark & Ablation Lab -->
+            <div class="tab-pane" id="tab-benchmark" role="tabpanel">
+              <div class="card mb-3">
+                <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+                  <div>
+                    <h3 class="mb-1">Synthetic Drift Injection &amp; 3-Way Ablation Lab</h3>
+                    <div class="text-secondary small">Copies <code>./sample_repo</code> to an isolated temp workspace, injects 10 ground-truth violations across 5 categories, and benchmarks all 3 analyzers.</div>
+                  </div>
+                  <button id="btn-run-benchmark" class="btn btn-primary" onclick="runBenchmark()">
+                    Run Synthetic Drift Injection &amp; 3-Way Ablation Benchmark
+                  </button>
+                </div>
+              </div>
+
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h3 class="card-title">Method Comparison (Precision / Recall / F1 / Latency / Memory)</h3>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-vcenter card-table">
+                    <thead>
+                      <tr>
+                        <th>Method</th>
+                        <th class="text-end">TP</th>
+                        <th class="text-end">FP</th>
+                        <th class="text-end">FN</th>
+                        <th class="text-end">Precision</th>
+                        <th class="text-end">Recall</th>
+                        <th class="text-end">F1-Score</th>
+                        <th class="text-end">Latency (ms)</th>
+                        <th class="text-end">Peak Mem (MB)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="ablation-tbody">
+                      <tr><td colspan="9" class="text-center text-secondary py-4">Click the button above to execute the ablation benchmark.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-header">
+                  <h3 class="card-title">Category-Level Recall Breakdown</h3>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-vcenter card-table">
+                    <thead>
+                      <tr>
+                        <th>Violation Category</th>
+                        <th class="text-end">Single-File AST</th>
+                        <th class="text-end">Import-Only</th>
+                        <th class="text-end">ArchGuard-Det (Proposed)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="category-recall-tbody">
+                      <tr><td colspan="4" class="text-center text-secondary py-4">No benchmark results recorded yet.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB 4: IEEE Paper Export -->
+            <div class="tab-pane" id="tab-export" role="tabpanel">
+              <div class="card">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                  <h3 class="card-title">IEEE Two-Column LaTeX Results Table (results_table.tex)</h3>
+                  <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="copyLatex()">Copy LaTeX</button>
+                    <a class="btn btn-outline-primary btn-sm" href="/api/export/latex" download="results_table.tex">Download results_table.tex</a>
+                    <a class="btn btn-primary btn-sm" href="/api/export/csv" download="benchmark_results.csv">Download benchmark_results.csv</a>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <pre id="latex-preview" class="latex-preview mb-0">Run the ablation benchmark in Tab 3 to generate results_table.tex.</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/js/tabler.min.js"></script>
+  <script>
+    let currentAudit = null;
+    let currentBenchmark = null;
+
+    function showError(msg) {
+      const el = document.getElementById('alert-banner');
+      el.textContent = msg;
+      el.classList.remove('d-none');
+    }
+
+    function clearError() {
+      document.getElementById('alert-banner').classList.add('d-none');
+    }
+
+    function esc(str) {
+      return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+    }
+
+    async function loadRules() {
+      clearError();
+      const res = await fetch('/api/rules');
+      const data = await res.json();
+      if (!res.ok) return showError(data.error || 'Failed to load rules');
+      document.getElementById('yaml-editor').value = data.yaml_text || '';
+    }
+
+    async function saveRules() {
+      clearError();
+      const yamlText = document.getElementById('yaml-editor').value;
+      const res = await fetch('/api/rules', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'save', yaml_text: yamlText})
+      });
+      const data = await res.json();
+      if (!res.ok) return showError(data.error || 'Failed to save rules');
+    }
+
+    async function runAudit() {
+      clearError();
+      const zipInput = document.getElementById('repo-zip-input');
+      const repoPath = document.getElementById('repo-path-input').value.trim() || './sample_repo';
+      const rulesYaml = document.getElementById('yaml-editor').value;
+
+      let res;
+      if (zipInput.files && zipInput.files.length > 0) {
+        const fd = new FormData();
+        fd.append('repo_zip', zipInput.files[0]);
+        fd.append('rules_yaml', rulesYaml);
+        res = await fetch('/api/audit', {method: 'POST', body: fd});
+      } else {
+        res = await fetch('/api/audit', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({repo_path: repoPath, rules_yaml: rulesYaml})
+        });
+      }
+
+      const data = await res.json();
+      if (!res.ok) return showError(data.error || 'Audit failed');
+      currentAudit = data;
+      renderAudit(data);
+      const tabTrigger = document.querySelector('a[href="#tab-findings"]');
+      if (tabTrigger && window.bootstrap) {
+        new window.bootstrap.Tab(tabTrigger).show();
+      }
+    }
+
+    function renderAudit(data) {
+      document.getElementById('kpi-adi').textContent = Number(data.adi_score || 0).toFixed(3);
+      const sev = data.severity_counts || {};
+      document.getElementById('kpi-violations').textContent = data.total_violations ?? 0;
+      document.getElementById('kpi-severity-sub').textContent =
+        `${sev.CRITICAL || 0} Critical · ${sev.HIGH || 0} High · ${sev.MEDIUM || 0} Medium`;
+      document.getElementById('kpi-graph').textContent = `${data.node_count || 0} / ${data.edge_count || 0}`;
+      document.getElementById('kpi-latency').textContent = `${Number(data.execution_ms || 0).toFixed(2)} ms`;
+      renderGraph(data.graph || {nodes: [], edges: []});
+      renderViolationsTable();
+    }
+
+    function renderGraph(graph) {
+      const svg = document.getElementById('dependency-svg');
+      const tiers = ['Entrypoint', 'Presentation', 'Service', 'Repository', 'Utility', 'ExternalDB'];
+      const tierColors = {
+        Entrypoint: '#475569',
+        Presentation: '#2563eb',
+        Service: '#0d9488',
+        Repository: '#7c3aed',
+        Utility: '#d97706',
+        ExternalDB: '#dc2626',
+        Unassigned: '#64748b'
+      };
+
+      const nodesByTier = {};
+      tiers.forEach(t => nodesByTier[t] = []);
+      (graph.nodes || []).forEach(n => {
+        const tier = tiers.includes(n.layer) ? n.layer : 'Utility';
+        nodesByTier[tier].push(n);
+      });
+
+      const width = 1120;
+      const height = 460;
+      const colW = width / tiers.length;
+      const positions = {};
+
+      let html = '<defs>';
+      html += '<marker id="arrow-ok" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="#16a34a" /></marker>';
+      html += '<marker id="arrow-bad" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="#dc2626" /></marker>';
+      html += '</defs>';
+
+      tiers.forEach((tier, tIdx) => {
+        const xCenter = colW * tIdx + colW / 2;
+        html += `<rect x="${colW * tIdx + 8}" y="12" width="${colW - 16}" height="${height - 24}" rx="8" fill="#f8fafc" stroke="#e2e8f0" />`;
+        html += `<text x="${xCenter}" y="34" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">${esc(tier)}</text>`;
+
+        const list = nodesByTier[tier];
+        const usableH = height - 80;
+        list.forEach((n, idx) => {
+          const y = 68 + (usableH / (list.length + 1)) * (idx + 1);
+          positions[n.id] = {x: xCenter, y};
+        });
+      });
+
+      (graph.edges || []).forEach(e => {
+        const p1 = positions[e.source];
+        const p2 = positions[e.target];
+        if (!p1 || !p2) return;
+        const dx = (p2.x - p1.x) * 0.4;
+        const pathD = `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y - 24}, ${p2.x - dx} ${p2.y - 24}, ${p2.x} ${p2.y}`;
+        if (e.is_violation) {
+          html += `<path d="${pathD}" fill="none" stroke="#dc2626" stroke-width="2.5" class="edge-violation" marker-end="url(#arrow-bad)" />`;
+        } else {
+          html += `<path d="${pathD}" fill="none" stroke="#16a34a" stroke-opacity="0.55" stroke-width="1.5" marker-end="url(#arrow-ok)" />`;
+        }
+      });
+
+      (graph.nodes || []).forEach(n => {
+        const pos = positions[n.id];
+        if (!pos) return;
+        const color = tierColors[n.layer] || '#475569';
+        const stroke = n.is_cyclic ? '#dc2626' : color;
+        html += `<g transform="translate(${pos.x}, ${pos.y})">`;
+        html += `<rect x="-66" y="-17" width="132" height="34" rx="6" fill="#ffffff" stroke="${stroke}" stroke-width="${n.is_cyclic ? 2.5 : 1.5}" />`;
+        html += `<text x="0" y="-2" text-anchor="middle" font-size="11" font-weight="600" fill="#0f172a">${esc(n.label)}</text>`;
+        html += `<text x="0" y="11" text-anchor="middle" font-size="9" fill="#64748b">Ca:${n.ca} Ce:${n.ce} I:${Number(n.instability).toFixed(2)}</text>`;
+        html += `</g>`;
+      });
+
+      svg.innerHTML = html;
+    }
+
+    function renderViolationsTable() {
+      const tbody = document.getElementById('violations-tbody');
+      if (!currentAudit) return;
+      const sevF = document.getElementById('filter-severity').value;
+      const catF = document.getElementById('filter-category').value;
+      const rows = (currentAudit.violations || []).filter(v =>
+        (sevF === 'ALL' || v.severity === sevF) &&
+        (catF === 'ALL' || v.category === catF)
+      );
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-success fw-medium py-4">Zero architectural violations detected for the current filter.</td></tr>';
+        return;
+      }
+      const badgeClass = {CRITICAL: 'bg-danger-lt', HIGH: 'bg-warning-lt', MEDIUM: 'bg-info-lt', LOW: 'bg-secondary-lt'};
+      tbody.innerHTML = rows.map(v => `
+        <tr>
+          <td class="tabular-nums fw-semibold">${esc(v.violation_id)}<div class="text-secondary small">${esc(v.violated_rule)}</div></td>
+          <td>${esc(v.category)}</td>
+          <td><span class="badge ${badgeClass[v.severity] || 'bg-secondary-lt'}">${esc(v.severity)}</span></td>
+          <td class="tabular-nums">${esc(v.source_file)}:${(v.line_numbers || []).join(', ')}</td>
+          <td class="small tabular-nums">${esc(v.architectural_trace)}</td>
+          <td class="small">${esc(v.deterministic_fix)}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function runBenchmark() {
+      clearError();
+      const btn = document.getElementById('btn-run-benchmark');
+      btn.disabled = true;
+      btn.textContent = 'Running Drift Injection & 3-Way Ablation...';
+      try {
+        const res = await fetch('/api/benchmark/run', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({rules_yaml: document.getElementById('yaml-editor').value})
+        });
+        const data = await res.json();
+        if (!res.ok) return showError(data.error || 'Benchmark failed');
+        currentBenchmark = data;
+        renderBenchmark(data);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Run Synthetic Drift Injection & 3-Way Ablation Benchmark';
+      }
+    }
+
+    function renderBenchmark(data) {
+      const methods = data.methods || [];
+      document.getElementById('ablation-tbody').innerHTML = methods.map((m, idx) => `
+        <tr class="${idx === methods.length - 1 ? 'table-active fw-semibold' : ''}">
+          <td>${esc(m.method)}</td>
+          <td class="text-end tabular-nums">${m.tp}</td>
+          <td class="text-end tabular-nums">${m.fp}</td>
+          <td class="text-end tabular-nums">${m.fn}</td>
+          <td class="text-end tabular-nums">${Number(m.precision).toFixed(3)}</td>
+          <td class="text-end tabular-nums">${Number(m.recall).toFixed(3)}</td>
+          <td class="text-end tabular-nums">${Number(m.f1_score).toFixed(3)}</td>
+          <td class="text-end tabular-nums">${Number(m.latency_ms).toFixed(2)}</td>
+          <td class="text-end tabular-nums">${Number(m.peak_memory_mb).toFixed(4)}</td>
+        </tr>
+      `).join('');
+
+      const cats = [
+        'Direct Layering Violation',
+        'Transitive Layer Bypass',
+        'Circular Dependency',
+        'Security Guardrail Bypass',
+        'Structural Technical Debt'
+      ];
+      document.getElementById('category-recall-tbody').innerHTML = cats.map(cat => {
+        const cells = methods.map(m => {
+          const c = (m.category_recall || {})[cat] || {detected: 0, total: 0, recall: 0};
+          return `<td class="text-end tabular-nums">${c.detected}/${c.total} (${(c.recall * 100).toFixed(1)}%)</td>`;
+        }).join('');
+        return `<tr><td>${esc(cat)}</td>${cells}</tr>`;
+      }).join('');
+
+      document.getElementById('latex-preview').textContent = data.latex_content || '';
+    }
+
+    async function copyLatex() {
+      const text = document.getElementById('latex-preview').textContent;
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      await loadRules();
+      await runAudit();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+layers:
+  Entrypoint:
+    - "app.py"
+    - "config.py"
+  Presentation:
+    - "routes/*"
+  Service:
+    - "services/*"
+  Repository:
+    - "repositories/*"
+  Utility:
+    - "utils/*"
+
+allowed_dependencies:
+  Entrypoint:
+    - "Presentation"
+    - "Service"
+    - "Repository"
+    - "Utility"
+  Presentation:
+    - "Service"
+    - "Utility"
+  Service:
+    - "Repository"
+    - "Utility"
+  Repository:
+    - "Utility"
+    - "ExternalDB"
+  Utility: []
+
+forbidden_direct_imports_by_layer:
+  Presentation:
+    - "sqlite3"
+    - "sqlalchemy"
+    - "psycopg2"
+    - "pymysql"
+    - "repositories"
+  Service:
+    - "sqlite3"
+    - "sqlalchemy"
+    - "routes"
+
+security_rules:
+  require_auth_routes:
+    target_files:
+      - "order_routes.py"
+      - "product_routes.py"
+    required_decorator: "require_auth"
+    exempt_prefix: "public_"
+
+debt_thresholds:
+  max_cyclomatic_complexity: 10
+  max_fan_out: 6
+  max_instability: 0.85
+  min_fan_in_for_instability: 2

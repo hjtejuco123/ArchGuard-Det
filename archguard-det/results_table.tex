@@ -1,0 +1,16 @@
+\begin{table}[htbp]
+\centering
+\caption{Ablation Study on Synthetic Architectural Drift Injection ($N=10$ Ground-Truth Violations)}
+\label{tab:archguard_ablation}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccccccc}
+\hline
+\textbf{Method} & \textbf{TP} & \textbf{FP} & \textbf{FN} & \textbf{Prec.} & \textbf{Rec.} & \textbf{F1} & \textbf{Time (ms)} & \textbf{Mem (MB)} \\
+\hline
+Single-File AST Linter & 4 & 3 & 6 & 0.571 & 0.400 & 0.470 & 28.97 & 0.3699 \\
+Import-Only Checker & 3 & 0 & 7 & 1.000 & 0.300 & 0.462 & 15.19 & 0.3386 \\
+\textbf{ArchGuard-Det (Proposed)} & \textbf{10} & \textbf{0} & \textbf{0} & \textbf{1.000} & \textbf{1.000} & \textbf{1.000} & 43.27 & 0.5183 \\
+\hline
+\end{tabular}%
+}
+\end{table}
